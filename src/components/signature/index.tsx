@@ -34,7 +34,7 @@ const FanSignature = () => {
     try {
       if (image) {
         await updateSignature({
-          uuid: licenseID!,
+          uuid: licenseID,
           signature: image,
         });
       }

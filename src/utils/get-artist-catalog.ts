@@ -130,13 +130,57 @@ export const getArtistCatalog = async (
       }
     }
 
+    async function getPreviewUrlFromSpotifyPage(
+      url: string
+    ): Promise<string | null> {
+      try {
+        const res = await fetch(url);
+        const html = await res.text();
+
+        // Find the position of the og:audio meta tag
+        const tagStart = html.indexOf('<meta property="og:audio"');
+        if (tagStart === -1) return null;
+
+        // Find the start of the content attribute
+        const contentAttr = 'content="';
+        const contentStart = html.indexOf(contentAttr, tagStart);
+        if (contentStart === -1) return null;
+
+        const valueStart = contentStart + contentAttr.length;
+        const valueEnd = html.indexOf('"', valueStart);
+        if (valueEnd === -1) return null;
+
+        const fullUrl = html.slice(valueStart, valueEnd);
+
+        if (fullUrl.startsWith("https://p.scdn.co/mp3-preview/")) {
+          return fullUrl;
+        }
+
+        return null;
+      } catch (err) {
+        console.error("Error fetching or parsing Spotify HTML:", err);
+        return null;
+      }
+    }
+
     const uniqueTracks = removeDuplicateTracks(allTracks);
-    const anthems: Anthem[] = uniqueTracks
-      .map((track) =>
-        track.album ? createTrackObject(track, track.album) : null
-      )
-      .filter((anthem): anthem is Anthem => anthem?.preview_url !== null);
-    return { items: anthems };
+    const anthems: (Anthem | null)[] = await Promise.all(
+      uniqueTracks.map(async (track) => {
+        if (!track.album) return null;
+        if (!track.preview_url && track.external_urls?.spotify) {
+          const previewId = await getPreviewUrlFromSpotifyPage(
+            track.external_urls.spotify
+          );
+          if (previewId) {
+            track.preview_url = previewId;
+          }
+        }
+
+        const anthem = createTrackObject(track, track.album);
+        return anthem.preview_url ? anthem : null;
+      })
+    );
+    return { items: anthems.filter((a): a is Anthem => a !== null) };
   } catch (error) {
     console.error("Failed to fetch artist catalog:", error);
     return { items: [] };

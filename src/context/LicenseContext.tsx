@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 interface LicenseContextValue {
-  licenseID: string | null;
+  licenseID: string;
   setLicenseID: (licenseID: string) => void;
 }
 
@@ -11,19 +11,20 @@ interface LicenseProviderProps {
   children: React.ReactNode;
 }
 
-const LicenseContext = createContext<LicenseContextValue>({
-  licenseID: null,
-  setLicenseID: () => {
-    /* no-op */
-  },
-});
+const LicenseContext = createContext<LicenseContextValue | null>(null);
 
-export const useLicense = () => useContext(LicenseContext);
+export const useLicense = () => {
+  const context = useContext(LicenseContext);
+  if (!context) {
+    throw new Error("useLicense must be used within a LicenseProvider");
+  }
+  return context;
+};
 
 export const LicenseProvider: React.FC<LicenseProviderProps> = ({
   children,
 }) => {
-  const [licenseID, setLicenseID] = useState<string | null>(null);
+  const [licenseID, setLicenseID] = useState<string>("");
 
   // Generate a License ID when the component mounts
   useEffect(() => {

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
 
 // ** Custom Components, Hooks, Utils, etc.
+import MediaPlayer from "@/components/media-player";
+import { useFormContext } from "@/context/FormDataContext";
 import { useLicense } from "@/context/LicenseContext";
 import { useSpotify } from "@/context/SpotifyContext";
 import type { Catalog } from "@/types/catalog";
@@ -34,11 +36,16 @@ const Anthem: React.FC = () => {
   const { artistCatalog } = useSpotify();
 
   const { licenseID } = useLicense();
+  const { mutateAsync: newFan } = api.fans.create.useMutation();
   const { mutateAsync: updateAnthem } = api.fans.anthem.useMutation();
+  const { formData } = useFormContext();
 
   const [selectedAnthem, setSelectedAnthem] = useState<Catalog | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  interface UploadResponse {
+    fileURL: string;
+  }
   // Add this to prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
@@ -47,7 +54,6 @@ const Anthem: React.FC = () => {
   if (!mounted) {
     return null; // or a loading skeleton
   }
-
   const handleSubmit = async () => {
     if (!selectedAnthem) {
       alert("Please select an anthem first.");
@@ -55,16 +61,43 @@ const Anthem: React.FC = () => {
     }
 
     try {
-      const data = await updateAnthem({
-        uuid: licenseID!,
-        anthem: selectedAnthem,
-      });
-
-      if (!data) {
-        throw new Error("Failed to save anthem");
+      const files = formData?.files;
+      const formDataUpload = new FormData();
+      if (files) {
+        formDataUpload.append("file", files[0]);
       }
 
-      router.push("/signature");
+      const uploadImageResponse = await fetch("/api/storage", {
+        method: "POST",
+        body: formDataUpload,
+      });
+
+      if (!uploadImageResponse.ok) {
+        throw new Error(
+          `Upload Image Error! status: ${uploadImageResponse.status}`
+        );
+      }
+
+      const { fileURL } = (await uploadImageResponse.json()) as UploadResponse;
+
+      const response = await newFan({
+        ...formData,
+        profilePicture: fileURL,
+      });
+
+      if (response) {
+        const data = await updateAnthem({
+          uuid: licenseID,
+          anthem: selectedAnthem,
+        });
+        if (data) {
+          router.push("/signature");
+        }
+
+        if (!data) {
+          throw new Error("Failed to save anthem");
+        }
+      }
     } catch (error) {
       console.error("Error saving anthem:", error);
       alert("Failed to save anthem. Please try again.");
@@ -92,6 +125,10 @@ const Anthem: React.FC = () => {
             />
           </div>
         )}
+
+        <div>
+          {selectedAnthem && <MediaPlayer selectedAnthem={selectedAnthem} />}
+        </div>
       </div>
     </div>
   );

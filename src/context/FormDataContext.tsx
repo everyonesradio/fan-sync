@@ -1,9 +1,29 @@
 import { createContext, useContext, useState, useMemo } from "react";
 
 interface FormDataContextType {
-  formData: FormData | null;
-  setFormData: (data: FormData) => void;
+  formData: FormDataType;
+  setFormData: React.Dispatch<React.SetStateAction<FormDataType>>;
 }
+
+export interface FormDataType {
+  uuid: string;
+  fullname: string;
+  email: string;
+  username: string;
+  dob: string;
+  location: string;
+  fileURL?: string;
+  files?: File[];
+}
+
+export const initialFormData: FormDataType = {
+  uuid: "",
+  fullname: "",
+  email: "",
+  username: "",
+  dob: "",
+  location: "",
+};
 
 interface FormProviderProps {
   children: React.ReactNode;
@@ -20,7 +40,7 @@ export const useFormContext = () => {
 };
 
 export const FormDataProvider: React.FC<FormProviderProps> = ({ children }) => {
-  const [formData, setFormData] = useState<FormData | null>(null);
+  const [formData, setFormData] = useState<FormDataType>(initialFormData);
   const formDataMemoized = useMemo(
     () => ({ formData, setFormData }),
     [formData]

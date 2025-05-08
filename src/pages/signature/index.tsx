@@ -28,6 +28,8 @@ const Signature = () => {
   const { mutateAsync: welcomeEmail } = api.fans.email.useMutation();
 
   const handleNext = async () => {
+    localStorage.removeItem("formData");
+
     router.push(`/license/${licenseID}`);
 
     if (fanData) {

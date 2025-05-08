@@ -1,19 +1,22 @@
 // ** React/Next.js Imports
 import { useRouter } from "next/navigation";
-import React, { type ChangeEvent } from "react";
+import React, { useEffect, useRef, type ChangeEvent } from "react";
 
 // ** React95 Imports
 import { Input, Button } from "@react95/core";
 
 // ** Third-Party Imports
+import { TRPCClientError } from "@trpc/client";
 import { useForm } from "react-hook-form";
 
 // ** Custom Components, Hooks, Utils, etc.
-import { useFormContext } from "@/context/FormDataContext";
+import { type FormDataType, useFormContext } from "@/context/FormDataContext";
 import { useLicense } from "@/context/LicenseContext";
 import { api } from "@/utils/trpc";
 
-interface FormInputs {
+import { dataURLtoFile } from "../upload";
+
+export interface FormInputs {
   fullname: string;
   email: string;
   username: string;
@@ -43,58 +46,107 @@ interface UploadResponse {
 const Form = () => {
   const router = useRouter();
   const { licenseID } = useLicense();
-  const { formData } = useFormContext();
-  const { mutateAsync: newFan } = api.fans.create.useMutation();
+  const { formData, setFormData } = useFormContext();
+  const { mutateAsync: validateUsername } = api.fans.validate.useMutation();
 
   const {
     register,
     handleSubmit,
-    watch,
+    setError,
     setValue,
+    clearErrors,
     formState: { errors, isValid },
   } = useForm<FormInputs>({
-    mode: "onBlur",
+    mode: "onTouched",
+    reValidateMode: "onChange",
   });
 
-  // Handle username input transformation
-  const _username = watch("username");
+  interface StoredFormData {
+    data: Partial<FormDataType>;
+    savedAt: number;
+  }
 
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (!formData?.fileURL) {
+      const stored = localStorage.getItem("formData");
+
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as StoredFormData;
+          const expired = Date.now() - parsed.savedAt > 20 * 60 * 1000;
+
+          if (!expired && parsed.data) {
+            const parsedData: Partial<FormDataType> = parsed.data;
+
+            if (parsedData.fileURL) {
+              const file = dataURLtoFile(parsedData.fileURL, "recovered.png");
+
+              setFormData({
+                ...parsedData,
+                files: [file],
+              } as FormDataType);
+            }
+          } else {
+            localStorage.removeItem("formData");
+          }
+        } catch (err) {
+          console.error("Error restoring formData on /form:", err);
+          localStorage.removeItem("formData");
+        }
+      }
+    }
+
+    if (!formData || initializedRef.current) return;
+
+    const fields: (keyof FormInputs)[] = [
+      "fullname",
+      "email",
+      "username",
+      "dob",
+      "location",
+    ];
+
+    fields.forEach((field) => {
+      const value = formData[field];
+      if (value) {
+        setValue(field, value, { shouldValidate: true });
+      }
+    });
+
+    initializedRef.current = true;
+
+    //only rerun when formData changes, setFormData and setValue are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData]);
+
+  // Handle username input transformation
   const handleUsernameChange = (e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     const transformValue = value.startsWith("@") ? value : `@${value}`;
     setValue("username", transformValue);
+    clearErrors("username");
   };
 
   const formSubmission = async (data: FormInputs) => {
-    try {
-      const uploadImageResponse = await fetch("/api/storage", {
-        method: "POST",
-        body: formData,
-      });
+    const updatedFormData = {
+      ...formData,
+      uuid: licenseID,
+      ...data,
+    };
 
-      if (!uploadImageResponse.ok) {
-        throw new Error(
-          `Upload Image Error! status: ${uploadImageResponse.status}`
-        );
-      }
+    setFormData(updatedFormData);
 
-      const { fileURL } = (await uploadImageResponse.json()) as UploadResponse;
+    localStorage.setItem(
+      "formData",
+      JSON.stringify({
+        data: { ...updatedFormData },
+        savedAt: Date.now(), // refresh timestamp
+      })
+    );
 
-      const response = await newFan({
-        uuid: licenseID!,
-        ...data,
-        profilePicture: fileURL,
-      });
-
-      if (response) {
-        router.push("/anthem");
-      } else {
-        // Handle error
-        throw new Error("Server error!");
-      }
-    } catch (error) {
-      console.error("Error making requests:", error);
-    }
+    router.push("/anthem");
   };
 
   const onSubmit = async (data: FormInputs) => {
@@ -104,6 +156,21 @@ const Form = () => {
     if (!formData) {
       throw new Error("Image Data is missing");
     }
+
+    try {
+      await validateUsername({ username: data.username });
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (err instanceof TRPCClientError && err.data?.code === "CONFLICT") {
+        setError("username", {
+          type: "manual",
+          message: err.message || "Username already exists",
+        });
+        return;
+      }
+      throw err; // unexpected error
+    }
+
     formSubmission(data);
   };
 
@@ -198,7 +265,7 @@ const Form = () => {
         <Button
           type='submit'
           disabled={!isValid}
-          className={`mt-7 ${!isValid ? "text-gray-400" : "hover:bg-slate-300 text-black "}`}
+          className={`mt-7 ${!isValid ? "cursor-not-allowed" : "hover:bg-slate-300 text-black"}`}
         >
           Next
         </Button>

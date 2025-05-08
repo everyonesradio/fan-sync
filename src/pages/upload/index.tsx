@@ -1,13 +1,13 @@
 // ** React/Next.js Imports
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 // ** React95 Imports
 import { Button } from "@react95/core";
 
 // ** Custom Components, Hooks, Utils, etc.
-import { useFormContext } from "@/context/FormDataContext";
+import { type FormDataType, useFormContext } from "@/context/FormDataContext";
 
 // ** Icon Imports
 import { HiUser } from "react-icons/hi2";
@@ -25,29 +25,100 @@ import { HiUser } from "react-icons/hi2";
  * @param files - The selected files to be uploaded, or `null` if no files are selected.
  */
 
+export const dataURLtoFile = (dataurl: string, filename: string): File => {
+  const arr = dataurl.split(",");
+  const mimeMatch = /:(.*?);/.exec(arr[0]);
+  if (!mimeMatch) throw new Error("Invalid data URL");
+
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  const n = bstr.length;
+  const u8arr = new Uint8Array(n);
+
+  for (let i = 0; i < n; i++) {
+    u8arr[i] = bstr.charCodeAt(i);
+  }
+
+  return new File([u8arr], filename, { type: mime });
+};
+
 const Upload = () => {
   const [imageURL, setImageURL] = useState<string | null>(null);
   const router = useRouter();
-  const { setFormData } = useFormContext();
+  const { formData, setFormData } = useFormContext();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  interface StoredFormData {
+    data: Partial<FormDataType>;
+    savedAt: number;
+  }
+
+  // ✅ Recover base64 + reconstruct File after refresh
+  useEffect(() => {
+    const stored = localStorage.getItem("formData");
+
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as StoredFormData;
+
+        const expired = Date.now() - parsed.savedAt > 20 * 60 * 1000; // 20 minutes
+
+        if (!expired && parsed.data) {
+          const parsedData: Partial<FormDataType> = parsed.data;
+
+          if (parsedData.fileURL) {
+            const file = dataURLtoFile(parsedData.fileURL, "recovered.png");
+
+            setFormData({
+              ...parsedData,
+              files: [file], // ✅ reconstruct File[]
+            } as FormDataType);
+
+            setImageURL(parsedData.fileURL);
+          }
+        } else {
+          localStorage.removeItem("formData");
+        }
+      } catch (err) {
+        console.error("Failed to restore formData from localStorage:", err);
+        localStorage.removeItem("formData");
+      }
+    }
+  }, []);
 
   const upload = async (files: FileList | null) => {
-    if (files && files.length > 0) {
-      try {
-        const formData = new FormData();
-        formData.append("file", files[0]);
-        setFormData(formData);
-
-        const fileUrl = URL.createObjectURL(files[0]);
-        setImageURL(fileUrl);
-      } catch (error) {
-        console.error("Error:", error);
-      }
-    } else {
+    if (!files || files.length === 0) {
       alert("Please select a file to upload");
+      return;
     }
-  };
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    const file = files[0];
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+
+      setImageURL(base64);
+      const newFormData = {
+        ...formData,
+        fileURL: base64,
+        files: [file],
+      };
+
+      setFormData(newFormData);
+
+      // ✅ Save to localStorage with timestamp
+      localStorage.setItem(
+        "formData",
+        JSON.stringify({
+          data: { ...newFormData, files: undefined }, // exclude raw File
+          savedAt: Date.now(),
+        })
+      );
+    };
+
+    reader.readAsDataURL(file);
+  };
 
   const handleDivClick = () => {
     fileInputRef.current?.click();
@@ -76,17 +147,17 @@ const Upload = () => {
               <HiUser size={200} />
             )}
           </button>
-          {/* Hidden file input */}
+
           <input
             type='file'
             ref={fileInputRef}
             style={{ display: "none" }}
-            onChange={(e) => {
-              upload(e.target.files);
-            }}
+            accept='image/*'
+            onChange={(e) => upload(e.target.files)}
           />
         </div>
       </div>
+
       <Button
         className={`${!imageURL ? "" : "hover:bg-slate-300 w-52"} `}
         onClick={() => router.push("/form")}

@@ -28,6 +28,7 @@ import { createTRPCRouter, publicProcedure } from "../trpc";
  * - `signature`: Updates a fan's signature information.
  * - `email`: Sends a welcome email to the fan, including their anthem details and license ID.
  * - `exportLicense`: Generates and returns a license document for the fan based on provided data and background selection.
+ * -  `validate`: Validates if username exists to prevent duplicate usernames being stored
  *
  * @returns A tRPC router object with defined procedures for fan-related operations.
  */
@@ -54,6 +55,27 @@ export const fansRouter = createTRPCRouter({
       }
 
       return fanData;
+    }),
+
+  validate: publicProcedure
+    .input(
+      z.object({
+        username: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.fan.findFirst({
+        where: { username: input.username },
+      });
+
+      if (existing) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This username already exists",
+        });
+      }
+
+      return;
     }),
 
   // uploadAvatar: publicProcedure
